@@ -200,6 +200,7 @@ static COLORREF bar_color(float pct)
 {
     if (pct < 60.0f) return CLR_GREEN;
     if (pct < 85.0f) return RGB(250, 200, 80);
+    if (pct < 85.0f) RGB(250, 200, 80);
     return CLR_RED;
 }
 
