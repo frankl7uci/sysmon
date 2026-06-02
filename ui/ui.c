@@ -120,7 +120,7 @@ void paint(
 
     draw_bar(
         hdc,
-        x + 160,
+        x + 250,
         y + 3,
         bar_w,
         14,
@@ -155,7 +155,7 @@ void paint(
 
     draw_bar(
         hdc,
-        x + 160,
+        x + 250,
         y + 3,
         bar_w,
         14,
@@ -199,7 +199,7 @@ void paint(
 
     draw_bar(
         hdc,
-        x + 160,
+        x + 250,
         y + 3,
         bar_w,
         14,
@@ -243,7 +243,7 @@ void paint(
 
     draw_bar(
         hdc,
-        x + 160,
+        x + 250,
         y + 3,
         bar_w,
         14,
