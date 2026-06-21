@@ -6,6 +6,7 @@
 #include "include/colors.h"
 
 static Stats g_stats;
+static UiState g_ui;
 
 LRESULT CALLBACK WndProc(
     HWND hwnd,
@@ -16,6 +17,8 @@ LRESULT CALLBACK WndProc(
     switch (msg) {
 
     case WM_CREATE:
+
+        ui_init(&g_ui);
 
         SetTimer(
             hwnd,
@@ -44,12 +47,26 @@ LRESULT CALLBACK WndProc(
 
         paint(
             hwnd,
+            &g_ui,
             &g_stats
         );
 
         return 0;
 
+    case WM_LBUTTONDOWN: {
+        int x = LOWORD(lp);
+        int y = HIWORD(lp);
+        int hit = ui_hit_tab(&g_ui, x, y);
+        if (hit >= 0) {
+            g_ui.active_tab = (Tab)hit;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        return 0;
+    }
+
     case WM_DESTROY:
+
+        ui_destroy(&g_ui);
 
         PostQuitMessage(0);
 
