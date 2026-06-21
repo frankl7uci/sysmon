@@ -4,6 +4,13 @@
 #include <tlhelp32.h>
 #include <psapi.h>
 
+typedef struct {
+    int  pid;
+    int  ppid;
+    long mem_kb;
+    char name[64];
+} RawProc;
+
 static void sort_by_memory(Proc *procs, int count, int take)
 {
     for (int i = 0; i < take; i++) {
@@ -20,6 +27,36 @@ static void sort_by_memory(Proc *procs, int count, int take)
     }
 }
 
+static int find_root(const RawProc *raw, int count, int pid)
+{
+    for (int iter = 0; iter < count; iter++) {
+        int parent_idx = -1;
+ 
+        for (int i = 0; i < count; i++) {
+            if (raw[i].pid == pid) {
+                int ppid = raw[i].ppid;
+ 
+                for (int j = 0; j < count; j++) {
+                    if (raw[j].pid == ppid &&
+                        strcmp(raw[j].name, raw[i].name) == 0)
+                    {
+                        parent_idx = j;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+ 
+        if (parent_idx == -1)
+            return pid;
+ 
+        pid = raw[parent_idx].pid;
+    }
+ 
+    return pid;
+}
+
 int get_top_processes(Proc *list, int max_count)
 {
     if (!list || max_count <= 0)
@@ -33,7 +70,9 @@ int get_top_processes(Proc *list, int max_count)
     if (snap == INVALID_HANDLE_VALUE)
         return 0;
 
-    Proc all_procs[512];
+    RawProc *raw = (RawProc *)malloc(512 * sizeof(RawProc));
+    if (!raw) { CloseHandle(snap); return 0; }
+
     int count = 0;
 
     PROCESSENTRY32W pe;
@@ -72,19 +111,16 @@ int get_top_processes(Proc *list, int max_count)
                 CloseHandle(ph);
             }
 
-            all_procs[count].pid =
-                (int)pe.th32ProcessID;
-
-            all_procs[count].mem_kb =
-                mem;
+            raw[count].pid  = (int)pe.th32ProcessID;
+            raw[count].ppid = (int)pe.th32ParentProcessID;
+            raw[count].mem_kb = mem;
 
             WideCharToMultiByte(
                 CP_ACP,
                 0,
                 pe.szExeFile,
                 -1,
-                all_procs[count].name,
-                sizeof(all_procs[count].name),
+                raw[count].name, sizeof(raw[count].name),
                 NULL,
                 NULL
             );
@@ -96,18 +132,57 @@ int get_top_processes(Proc *list, int max_count)
 
     CloseHandle(snap);
 
-    int take = (count < max_count)
-        ? count
+    Proc grouped[512];
+    int  gcount = 0;
+ 
+    for (int i = 0; i < count; i++) {
+        int root_pid = find_root(raw, count, raw[i].pid);
+ 
+        int found = -1;
+        for (int g = 0; g < gcount; g++) {
+            if (grouped[g].pid == root_pid) {
+                found = g;
+                break;
+            }
+        }
+ 
+        if (found >= 0) {
+            grouped[found].mem_kb += raw[i].mem_kb;
+        } else {
+            if (gcount >= 512) continue;
+ 
+            grouped[gcount].pid    = root_pid;
+            grouped[gcount].mem_kb = raw[i].mem_kb;
+ 
+            const char *root_name = raw[i].name;
+            for (int j = 0; j < count; j++) {
+                if (raw[j].pid == root_pid) {
+                    root_name = raw[j].name;
+                    break;
+                }
+            }
+            strncpy(grouped[gcount].name, root_name,
+                    sizeof(grouped[gcount].name) - 1);
+            grouped[gcount].name[sizeof(grouped[gcount].name) - 1] = '\0';
+ 
+            gcount++;
+        }
+    }
+ 
+    free(raw);
+
+    int take = (gcount < max_count)
+        ? gcount 
         : max_count;
 
     sort_by_memory(
-        all_procs,
-        count,
+        grouped,
+        gcount,
         take
     );
 
     for (int i = 0; i < take; i++) {
-        list[i] = all_procs[i];
+        list[i] = grouped[i];
     }
 
     return take;
