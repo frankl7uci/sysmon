@@ -13,7 +13,7 @@
 #define TAB_PAD_X    16
 
 #define CARD_W         220
-#define CARD_H          72
+#define CARD_H          88
 #define CARD_PAD_X      12
 #define CARD_PAD_Y      10
 #define CARD_GAP        10
@@ -210,7 +210,7 @@ static void draw_metric_card(
     SelectObject(hdc, ui->big);
     SetTextColor(hdc, col);
     RECT vr = { cx + 10, cy + 28, cx + CARD_W - 6, cy + CARD_H - 6 };
-    DrawTextA(hdc, value_str, -1, &vr, DT_LEFT | DT_SINGLELINE);
+    DrawTextA(hdc, value_str, -1, &vr, DT_LEFT | DT_WORDBREAK);
 
     if (selected) {
         HPEN pen = CreatePen(PS_SOLID, 1, col);
@@ -303,12 +303,14 @@ static void paint_performance(
 {
     char buf[128];
 
-    char card_vals[METRIC_COUNT][32];
+    char card_vals[METRIC_COUNT][64];
     sprintf(card_vals[METRIC_CPU],     "%.1f%%",           stats->cpu);
     sprintf(card_vals[METRIC_GPU],     "%.1f%%",           stats->gpu);
-    sprintf(card_vals[METRIC_MEMORY],  "%ld / %ld MB",
+    sprintf(card_vals[METRIC_MEMORY],  "%.1f / %.1f GB\n(%ld / %ld MB)",
+            stats->mem_used_mb / 1024.0, stats->mem_total_mb / 1024.0,
             stats->mem_used_mb, stats->mem_total_mb);
-    sprintf(card_vals[METRIC_DISK],    "%ld / %ld GB",
+    sprintf(card_vals[METRIC_DISK],    "%.2f / %.2f TB (%ld / &ld GB)",
+            stats->disk_used_gb / 1024.0, stats->disk_total_gb / 1024.0,
             stats->disk_used_gb, stats->disk_total_gb);
     sprintf(card_vals[METRIC_NETWORK], "RX %lu  TX %lu KB/s",
             stats->net_rx_kb, stats->net_tx_kb);
