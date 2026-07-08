@@ -15,70 +15,59 @@ LRESULT CALLBACK WndProc(
     LPARAM lp)
 {
     switch (msg) {
-
+ 
     case WM_CREATE:
-
         ui_init(&g_ui);
-
-        SetTimer(
-            hwnd,
-            1,
-            1000,
-            NULL
-        );
-
+        SetTimer(hwnd, 1, 1000, NULL);
         return 0;
-
+ 
     case WM_TIMER:
-
-        update_stats(
-            &g_stats
-        );
-
-        InvalidateRect(
-            hwnd,
-            NULL,
-            FALSE
-        );
-
+        update_stats(&g_stats);
+        ui_push_history(&g_ui, &g_stats);
+        InvalidateRect(hwnd, NULL, FALSE);
         return 0;
-
+ 
     case WM_PAINT:
-
-        paint(
-            hwnd,
-            &g_ui,
-            &g_stats
-        );
-
+        paint(hwnd, &g_ui, &g_stats);
         return 0;
-
+ 
     case WM_LBUTTONDOWN: {
-        int x = LOWORD(lp);
-        int y = HIWORD(lp);
-        int hit = ui_hit_tab(&g_ui, x, y);
-        if (hit >= 0) {
-            g_ui.active_tab = (Tab)hit;
+        int x = (int)LOWORD(lp);
+        int y = (int)HIWORD(lp);
+ 
+        int tab = ui_hit_tab(&g_ui, x, y);
+        if (tab >= 0) {
+            g_ui.active_tab = (Tab)tab;
             InvalidateRect(hwnd, NULL, FALSE);
+            return 0;
         }
+
+        if (g_ui.active_tab == TAB_PERFORMANCE) {
+            int m = ui_hit_metric_card(x, y, 0);
+            if (m >= 0) {
+                g_ui.selected_metric = (Metric)m;
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+
+        if (g_ui.active_tab == TAB_PROCESSES) {
+            int col = ui_hit_proc_col(x, y);
+            if (col >= 0) {
+                g_ui.proc_sort = (ProcSort)col;
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+ 
         return 0;
     }
-
+ 
     case WM_DESTROY:
-
         ui_destroy(&g_ui);
-
         PostQuitMessage(0);
-
         return 0;
     }
-
-    return DefWindowProcW(
-        hwnd,
-        msg,
-        wp,
-        lp
-    );
+ 
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 int WINAPI WinMain(

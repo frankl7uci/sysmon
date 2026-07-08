@@ -2,6 +2,7 @@
 #define DRAWING_H
 
 #include <windows.h>
+#include "history.h"
 
 COLORREF bar_color(float pct);
 
@@ -9,19 +10,19 @@ void draw_label(
     HDC hdc,
     HFONT font,
     COLORREF color,
-    int x,
-    int y,
-    int w,
-    const char *text
-);
-
+    int x, int y, int w,
+    const char *text);
+ 
 void draw_bar(
     HDC hdc,
-    int x,
-    int y,
-    int w,
-    int h,
-    float pct
-);
+    int x, int y, int w, int h,
+    float pct);
 
+void draw_graph(
+    HDC hdc,
+    int x, int y, int w, int h,
+    const History *hist,
+    float y_max,
+    COLORREF line_color);
+ 
 #endif
