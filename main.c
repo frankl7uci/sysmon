@@ -2,11 +2,16 @@
 #include <string.h>
 #include <stdio.h>
 
+#include <psapi.h>
+#include <shellapi.h>
+
 #include "stats/stats.h"
 #include "ui/ui.h"
 #include "include/colors.h"
 
 #define IDM_END_TASK  1001
+
+#define IDM_OPEN_LOCATION  1002
 
 static Stats g_stats;
 static UiState g_ui;
@@ -49,10 +54,12 @@ LRESULT CALLBACK WndProc(
     case WM_LBUTTONDOWN: {
         int x = (int)LOWORD(lp);
         int y = (int)HIWORD(lp);
- 
+
         int tab = ui_hit_tab(&g_ui, x, y);
         if (tab >= 0) {
-            g_ui.active_tab = (Tab)tab;
+            g_ui.active_tab    = (Tab)tab;
+            g_ui.selected_row  = -1;
+            g_ui.hovered_row   = -1;
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }
@@ -78,7 +85,7 @@ LRESULT CALLBACK WndProc(
                 InvalidateRect(hwnd, NULL, FALSE);
             }
         }
- 
+
         return 0;
     }
 
@@ -98,6 +105,7 @@ LRESULT CALLBACK WndProc(
         char label[128];
         sprintf(label, "End Task  (%s)", g_ui._procs[row].name);
         AppendMenuA(menu, MF_STRING, IDM_END_TASK, label);
+        AppendMenuA(menu, MF_STRING, IDM_OPEN_LOCATION, "Open File Location");
 
         POINT pt = { (int)LOWORD(lp), y };
         ClientToScreen(hwnd, &pt);
@@ -121,6 +129,20 @@ LRESULT CALLBACK WndProc(
             update_stats(&g_stats);
             ui_push_history(&g_ui, &g_stats);
             InvalidateRect(hwnd, NULL, FALSE);
+        } else if (cmd == IDM_OPEN_LOCATION) {
+            int pid = g_ui._procs[row].pid;
+            HANDLE ph = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                                    FALSE, (DWORD)pid);
+            if (ph) {
+                char path[MAX_PATH] = {0};
+                if (GetModuleFileNameExA(ph, NULL, path, MAX_PATH)) {
+                    char cmd_buf[MAX_PATH + 32];
+                    sprintf(cmd_buf, "/select,\"%s\"", path);
+                    ShellExecuteA(NULL, "open", "explorer.exe",
+                                  cmd_buf, NULL, SW_SHOWNORMAL);
+                }
+                CloseHandle(ph);
+            }
         }
 
         return 0;
