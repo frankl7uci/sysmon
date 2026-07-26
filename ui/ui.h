@@ -5,6 +5,7 @@
 #include "../stats/stats.h"
 
 #include "history.h"
+#include "../processes/process_list.h"
 
 typedef enum {
     TAB_PERFORMANCE = 0,
@@ -24,6 +25,7 @@ typedef enum {
 
 typedef enum {
     SORT_MEMORY = 0,
+    SORT_MEM_PCT,
     SORT_NAME,
     SORT_PID,
     SORT_COUNT
@@ -41,6 +43,12 @@ typedef struct {
     Metric selected_metric;
 
     ProcSort proc_sort;
+
+    int selected_row;
+    int hovered_row;
+
+    Proc  _procs[256];
+    int   _proc_count;
 } UiState;
 
 void ui_init(UiState *ui);
@@ -52,5 +60,7 @@ int  ui_hit_metric_card(int click_x, int click_y, int win_h);
 int  ui_hit_proc_col(int click_x, int click_y);
 
 int  ui_hit_tab(const UiState *ui, int click_x, int click_y);
+
+int  ui_hit_proc_row(int click_y);
 
 #endif

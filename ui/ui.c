@@ -23,6 +23,7 @@
 #define COL_PID_X        10
 #define COL_NAME_X       80
 #define COL_MEM_X       320
+#define COL_MEMPCT_X    430
 #define COL_HDR_Y       (TAB_HEIGHT + 8)
 #define COL_HDR_H        22
 #define ROW_H            20
@@ -133,6 +134,13 @@ int ui_hit_proc_col(int click_x, int click_y)
     if (click_x >= COL_NAME_X && click_x < COL_MEM_X)  return SORT_NAME;
     if (click_x >= COL_MEM_X  && click_x < COL_MEM_X + 160) return SORT_MEMORY;
     return -1;
+}
+
+int ui_hit_proc_row(int click_y)
+{
+    int first_row_y = COL_HDR_Y + COL_HDR_H + 4;
+    if (click_y < first_row_y) return -1;
+    return (click_y - first_row_y) / ROW_H;
 }
 
 static void draw_tabs(HDC hdc, const UiState *ui, int win_w)
@@ -339,6 +347,14 @@ static int cmp_mem_desc(const void *a, const void *b)
     if (pb->mem_kb < pa->mem_kb) return -1;
     return 0;
 }
+static int cmp_mempct_desc(const void *a, const void *b)
+{
+    float da = ((const Proc *)a)->mem_pct;
+    float db = ((const Proc *)b)->mem_pct;
+    if (db > da) return  1;
+    if (db < da) return -1;
+    return 0;
+}
 static int cmp_name_asc(const void *a, const void *b)
 {
     return strcmp(((const Proc *)a)->name, ((const Proc *)b)->name);
@@ -348,20 +364,25 @@ static int cmp_pid_asc(const void *a, const void *b)
     return ((const Proc *)a)->pid - ((const Proc *)b)->pid;
 }
 
- 
+
 static void paint_processes(
-    HDC hdc, const UiState *ui,
-    int win_w, int win_h)
+    HDC hdc, UiState *ui,
+    int win_w, int win_h,
+    const Stats *stats)
 {
     Proc procs[256];
-    int count = get_top_processes(procs, 256);
+    int count = get_top_processes(procs, 256, stats->mem_total_mb);
 
     switch (ui->proc_sort) {
-        case SORT_MEMORY: qsort(procs, count, sizeof(Proc), cmp_mem_desc);  break;
-        case SORT_NAME:   qsort(procs, count, sizeof(Proc), cmp_name_asc);  break;
-        case SORT_PID:    qsort(procs, count, sizeof(Proc), cmp_pid_asc);   break;
+        case SORT_MEMORY:  qsort(procs, count, sizeof(Proc), cmp_mem_desc);    break;
+        case SORT_MEM_PCT: qsort(procs, count, sizeof(Proc), cmp_mempct_desc); break;
+        case SORT_NAME:    qsort(procs, count, sizeof(Proc), cmp_name_asc);    break;
+        case SORT_PID:     qsort(procs, count, sizeof(Proc), cmp_pid_asc);     break;
         default: break;
     }
+
+    ui->_proc_count = count;
+    memcpy(ui->_procs, procs, count * sizeof(Proc));
 
     HBRUSH hdr_bg = CreateSolidBrush(RGB(22, 22, 35));
     RECT hdr_rect = { 0, COL_HDR_Y, win_w, COL_HDR_Y + COL_HDR_H };
@@ -376,12 +397,14 @@ static void paint_processes(
     DeleteObject(ul);
 
     struct { int x; int w; const char *label; ProcSort sort; } cols[] = {
-        { COL_PID_X,  COL_NAME_X - COL_PID_X,  "PID",    SORT_PID    },
-        { COL_NAME_X, COL_MEM_X  - COL_NAME_X,  "Name",   SORT_NAME   },
-        { COL_MEM_X,  160,                       "Memory", SORT_MEMORY },
+        { COL_PID_X,    COL_NAME_X   - COL_PID_X,    "PID",    SORT_PID     },
+        { COL_NAME_X,   COL_MEM_X    - COL_NAME_X,   "Name",   SORT_NAME    },
+        { COL_MEM_X,    COL_MEMPCT_X - COL_MEM_X,    "Memory", SORT_MEMORY  },
+        { COL_MEMPCT_X, 100,                          "Mem %",  SORT_MEM_PCT },
     };
- 
-    for (int c = 0; c < 3; c++) {
+    int ncols = 4;
+
+    for (int c = 0; c < ncols; c++) {
         int active = (cols[c].sort == ui->proc_sort);
         SelectObject(hdc, ui->med);
         SetBkMode(hdc, TRANSPARENT);
@@ -396,34 +419,48 @@ static void paint_processes(
         if (active) {
             SelectObject(hdc, ui->mono);
             RECT ar = {
-                cols[c].x + 50, COL_HDR_Y,
-                cols[c].x + 70, COL_HDR_Y + COL_HDR_H
+                cols[c].x + 55, COL_HDR_Y,
+                cols[c].x + 75, COL_HDR_Y + COL_HDR_H
             };
-            DrawTextA(hdc, (cols[c].sort == SORT_MEMORY) ? "v" : "^",
-                      -1, &ar, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            const char *arrow =
+                (cols[c].sort == SORT_MEMORY || cols[c].sort == SORT_MEM_PCT)
+                ? "v" : "^";
+            DrawTextA(hdc, arrow, -1, &ar,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         }
     }
 
     int y = COL_HDR_Y + COL_HDR_H + 4;
     char buf[128];
- 
+
     for (int i = 0; i < count && y + ROW_H < win_h - 4; i++) {
-        if (i % 2 == 0) {
-            HBRUSH row_bg = CreateSolidBrush(RGB(22, 22, 34));
-            RECT rr = { 0, y, win_w, y + ROW_H };
-            FillRect(hdc, &rr, row_bg);
-            DeleteObject(row_bg);
-        }
- 
+        COLORREF row_color;
+        if (i == ui->selected_row)
+            row_color = RGB(40, 60, 90);
+        else if (i == ui->hovered_row)
+            row_color = RGB(32, 32, 50);
+        else if (i % 2 == 0)
+            row_color = RGB(22, 22, 34);
+        else
+            row_color = CLR_BG;
+
+        HBRUSH row_bg = CreateSolidBrush(row_color);
+        RECT rr = { 0, y, win_w, y + ROW_H };
+        FillRect(hdc, &rr, row_bg);
+        DeleteObject(row_bg);
+
         sprintf(buf, "%d", procs[i].pid);
-        draw_label(hdc, ui->mono, CLR_DIM,  COL_PID_X,  y, 60,  buf);
-        draw_label(hdc, ui->mono, CLR_TEXT, COL_NAME_X, y, 230, procs[i].name);
+        draw_label(hdc, ui->mono, CLR_DIM,  COL_PID_X,    y, 60,  buf);
+        draw_label(hdc, ui->mono, CLR_TEXT, COL_NAME_X,   y, 225, procs[i].name);
         sprintf(buf, "%.1f MB", procs[i].mem_kb / 1024.0);
-        draw_label(hdc, ui->mono, CLR_DIM,  COL_MEM_X,  y, 120, buf);
- 
+        draw_label(hdc, ui->mono, CLR_DIM,  COL_MEM_X,    y, 115, buf);
+        sprintf(buf, "%.1f%%", procs[i].mem_pct);
+        draw_label(hdc, ui->mono, CLR_DIM,  COL_MEMPCT_X, y, 90,  buf);
+
         y += ROW_H;
     }
 }
+
 
 static void paint_network(
     HDC hdc, const UiState *ui,
@@ -512,7 +549,7 @@ void paint(
             paint_performance(hdc, ui, cr.right, cr.bottom, stats);
             break;
         case TAB_PROCESSES:
-            paint_processes(hdc, ui, cr.right, cr.bottom);
+            paint_processes(hdc, ui, cr.right, cr.bottom, stats);
             break;
         case TAB_NETWORK:
             paint_network(hdc, ui, cr.right, cr.bottom, stats);

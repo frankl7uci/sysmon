@@ -4,6 +4,9 @@
 #include <tlhelp32.h>
 #include <psapi.h>
 
+#include <string.h>
+#include <stdlib.h>
+
 typedef struct {
     int  pid;
     int  ppid;
@@ -57,16 +60,12 @@ static int find_root(const RawProc *raw, int count, int pid)
     return pid;
 }
 
-int get_top_processes(Proc *list, int max_count)
+int get_top_processes(Proc *list, int max_count, long total_mem_mb)
 {
     if (!list || max_count <= 0)
         return 0;
 
-    HANDLE snap = CreateToolhelp32Snapshot(
-        TH32CS_SNAPPROCESS,
-        0
-    );
-
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE)
         return 0;
 
@@ -79,54 +78,31 @@ int get_top_processes(Proc *list, int max_count)
     pe.dwSize = sizeof(pe);
 
     if (Process32FirstW(snap, &pe)) {
-
         do {
-
-            if (count >= 512)
-                break;
+            if (count >= 512) break;
 
             long mem = 0;
-
             HANDLE ph = OpenProcess(
-                PROCESS_QUERY_INFORMATION |
-                PROCESS_VM_READ,
-                FALSE,
-                pe.th32ProcessID
-            );
+                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                FALSE, pe.th32ProcessID);
 
             if (ph) {
-
                 PROCESS_MEMORY_COUNTERS pmc;
-
-                if (GetProcessMemoryInfo(
-                        ph,
-                        &pmc,
-                        sizeof(pmc)))
-                {
-                    mem = (long)(
-                        pmc.WorkingSetSize / 1024
-                    );
-                }
-
+                if (GetProcessMemoryInfo(ph, &pmc, sizeof(pmc)))
+                    mem = (long)(pmc.WorkingSetSize / 1024);
                 CloseHandle(ph);
             }
 
-            raw[count].pid  = (int)pe.th32ProcessID;
-            raw[count].ppid = (int)pe.th32ParentProcessID;
+            raw[count].pid    = (int)pe.th32ProcessID;
+            raw[count].ppid   = (int)pe.th32ParentProcessID;
             raw[count].mem_kb = mem;
 
-            WideCharToMultiByte(
-                CP_ACP,
-                0,
-                pe.szExeFile,
-                -1,
+            WideCharToMultiByte(CP_ACP, 0,
+                pe.szExeFile, -1,
                 raw[count].name, sizeof(raw[count].name),
-                NULL,
-                NULL
-            );
+                NULL, NULL);
 
             count++;
-
         } while (Process32NextW(snap, &pe));
     }
 
@@ -134,10 +110,10 @@ int get_top_processes(Proc *list, int max_count)
 
     Proc grouped[512];
     int  gcount = 0;
- 
+
     for (int i = 0; i < count; i++) {
         int root_pid = find_root(raw, count, raw[i].pid);
- 
+
         int found = -1;
         for (int g = 0; g < gcount; g++) {
             if (grouped[g].pid == root_pid) {
@@ -145,15 +121,15 @@ int get_top_processes(Proc *list, int max_count)
                 break;
             }
         }
- 
+
         if (found >= 0) {
             grouped[found].mem_kb += raw[i].mem_kb;
         } else {
             if (gcount >= 512) continue;
- 
+
             grouped[gcount].pid    = root_pid;
             grouped[gcount].mem_kb = raw[i].mem_kb;
- 
+
             const char *root_name = raw[i].name;
             for (int j = 0; j < count; j++) {
                 if (raw[j].pid == root_pid) {
@@ -164,26 +140,23 @@ int get_top_processes(Proc *list, int max_count)
             strncpy(grouped[gcount].name, root_name,
                     sizeof(grouped[gcount].name) - 1);
             grouped[gcount].name[sizeof(grouped[gcount].name) - 1] = '\0';
- 
+
             gcount++;
         }
     }
- 
+
     free(raw);
 
-    int take = (gcount < max_count)
-        ? gcount 
-        : max_count;
-
-    sort_by_memory(
-        grouped,
-        gcount,
-        take
-    );
-
-    for (int i = 0; i < take; i++) {
-        list[i] = grouped[i];
+    long total_kb = total_mem_mb * 1024;
+    for (int i = 0; i < gcount; i++) {
+        grouped[i].mem_pct = (total_kb > 0)
+            ? (float)grouped[i].mem_kb / total_kb * 100.0f
+            : 0.0f;
     }
+
+    int take = (gcount < max_count) ? gcount : max_count;
+    for (int i = 0; i < take; i++)
+        list[i] = grouped[i];
 
     return take;
 }

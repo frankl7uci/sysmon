@@ -1,9 +1,12 @@
 #include <windows.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "stats/stats.h"
 #include "ui/ui.h"
 #include "include/colors.h"
+
+#define IDM_END_TASK  1001
 
 static Stats g_stats;
 static UiState g_ui;
@@ -30,6 +33,18 @@ LRESULT CALLBACK WndProc(
     case WM_PAINT:
         paint(hwnd, &g_ui, &g_stats);
         return 0;
+
+    case WM_MOUSEMOVE: {
+        if (g_ui.active_tab == TAB_PROCESSES) {
+            int y = (int)HIWORD(lp);
+            int row = ui_hit_proc_row(y);
+            if (row != g_ui.hovered_row) {
+                g_ui.hovered_row = row;
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+        return 0;
+    }
  
     case WM_LBUTTONDOWN: {
         int x = (int)LOWORD(lp);
@@ -55,11 +70,66 @@ LRESULT CALLBACK WndProc(
             if (col >= 0) {
                 g_ui.proc_sort = (ProcSort)col;
                 InvalidateRect(hwnd, NULL, FALSE);
+                return 0;
+            }
+            int row = ui_hit_proc_row(y);
+            if (row >= 0 && row < g_ui._proc_count) {
+                g_ui.selected_row = row;
+                InvalidateRect(hwnd, NULL, FALSE);
             }
         }
  
         return 0;
     }
+
+    case WM_RBUTTONDOWN: {
+        if (g_ui.active_tab != TAB_PROCESSES)
+            return 0;
+
+        int y = (int)HIWORD(lp);
+        int row = ui_hit_proc_row(y);
+        if (row < 0 || row >= g_ui._proc_count)
+            return 0;
+
+        g_ui.selected_row = row;
+        InvalidateRect(hwnd, NULL, FALSE);
+
+        HMENU menu = CreatePopupMenu();
+        char label[128];
+        sprintf(label, "End Task  (%s)", g_ui._procs[row].name);
+        AppendMenuA(menu, MF_STRING, IDM_END_TASK, label);
+
+        POINT pt = { (int)LOWORD(lp), y };
+        ClientToScreen(hwnd, &pt);
+
+        int cmd = (int)TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN,
+            pt.x, pt.y,
+            0, hwnd, NULL);
+
+        DestroyMenu(menu);
+
+        if (cmd == IDM_END_TASK) {
+            int pid = g_ui._procs[row].pid;
+            HANDLE ph = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+            if (ph) {
+                TerminateProcess(ph, 1);
+                CloseHandle(ph);
+            }
+            g_ui.selected_row = -1;
+            update_stats(&g_stats);
+            ui_push_history(&g_ui, &g_stats);
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+
+        return 0;
+    }
+
+    case WM_MOUSELEAVE:
+        g_ui.hovered_row = -1;
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
  
     case WM_DESTROY:
         ui_destroy(&g_ui);
